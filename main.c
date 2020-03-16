@@ -73,12 +73,13 @@ int main ()
 // Producer Function
 void *producer (void *q)
 {
+    // Cast received argument as a queue
     queue *fifo;
-    int i;
-
     fifo = (queue *)q;
 
-    for (i = 0; i < LOOP; i++) {
+    // Two seasons of producing
+    for (int i = 0; i < LOOP; i++) {
+        // Get the lock to the queue, add to it, unlock it, raise semaphore, print and sleep
         pthread_mutex_lock (fifo->mut);
         queueAdd (fifo, i);
         pthread_mutex_unlock (fifo->mut);
@@ -86,7 +87,8 @@ void *producer (void *q)
         printf ("producer: added %d.\n", i);
         usleep (100000);
     }
-    for (i = 0; i < LOOP; i++) {
+    for (int i = 0; i < LOOP; i++) {
+        // Get the lock to the queue, add to it, unlock it, raise semaphore, print and sleep
         pthread_mutex_lock (fifo->mut);
         queueAdd (fifo, i);
         pthread_mutex_unlock (fifo->mut);
@@ -100,20 +102,25 @@ void *producer (void *q)
 // Consumer Function
 void *consumer (void *q)
 {
+    // Cast received argument as a queue
     queue *fifo;
-    int i, d;
-
     fifo = (queue *)q;
 
-    for (i = 0; i < LOOP; i++) {
-        sem_wait (fifo->sem);
+    // Temporary variable to hold consumed item
+    int d;
+
+    // Two seasons of consumption
+    for (int i = 0; i < LOOP; i++) {
+        // Wait on semaphore signal, take queue lock, delete item, release lock, print and sleep
+        sem_wait (fifo->sem);   //TODO: Is this blocking or just a signal - probably the 2nd??
         pthread_mutex_lock (fifo->mut);
         queueDel (fifo, &d);
         pthread_mutex_unlock (fifo->mut);
         printf ("consumer: deleted %d.\n", d);
         usleep(200000);
     }
-    for (i = 0; i < LOOP; i++) {
+    for (int i = 0; i < LOOP; i++) {
+        // Wait on semaphore signal, take lock, delete item, release lock, print and sleep
         sem_wait (fifo->sem);
         pthread_mutex_lock (fifo->mut);
         queueDel (fifo, &d);
