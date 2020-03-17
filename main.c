@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #define QUEUESIZE 10
 #define LOOP 20
@@ -36,6 +37,7 @@ typedef struct {
     int buf[QUEUESIZE];
     long head, tail;
     int full, empty;
+    bool prodEnd;   // Variable to signify end of production - used to exit consumers
     pthread_mutex_t *mut;
     pthread_cond_t *notFull, *notEmpty;
 } queue;
@@ -63,7 +65,6 @@ int main ()
         exit (1);
     }
 
-
     // Create and run Producer and Consumer threads
     pthread_t pro[P];
     pthread_t con[Q];
@@ -74,10 +75,16 @@ int main ()
         pthread_create (con + j, NULL, consumer, fifo);
     }
 
-    // Join Threads
+    // Join Producer Threads
     for(int i = 0; i < P; i++){
         pthread_join (pro[i], NULL);
     }
+
+    // Signal end of production
+    fifo->prodEnd = true;
+    pthread_cond_broadcast(fifo->notEmpty);
+
+    // Join consumer threads
     for(int j = 0; j < Q; j++){
         pthread_join (con[j], NULL);
     }
@@ -101,9 +108,11 @@ void *producer (void *q)
             pthread_cond_wait (fifo->notFull, fifo->mut);
         }
         queueAdd (fifo, i);
+        printf ("producer: added %d.\n", i);
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notEmpty);
     }
+    printf("Exiting producer\n");
     return (NULL);
 }
 
@@ -117,17 +126,24 @@ void *consumer (void *q)
     // Temporary variable to hold consumed item
     int d;
 
-    for (int i = 0; i < LOOP; i++) {
+    // Consume
+    while(1){
         pthread_mutex_lock (fifo->mut);
-        while (fifo->empty) {
+        while ((fifo->empty) && (fifo->prodEnd == false)) {
             printf ("consumer: queue EMPTY.\n");
             pthread_cond_wait (fifo->notEmpty, fifo->mut);
         }
+        // Check for end of production
+        if (fifo->prodEnd){
+            pthread_mutex_unlock (fifo->mut);
+            break;
+        }
         queueDel (fifo, &d);
+        printf ("consumer: received %d.\n", d);
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notFull);
-        printf ("consumer: received %d.\n", d);
     }
+    printf("Exiting consumer\n");
     return (NULL);
 }
 
@@ -143,6 +159,7 @@ queue *queueInit (void)
     q->full = 0;
     q->head = 0;
     q->tail = 0;
+    q->prodEnd = false;
     q->mut = (pthread_mutex_t *) malloc (sizeof (pthread_mutex_t));
     pthread_mutex_init (q->mut, NULL);
     q->notFull = (pthread_cond_t *) malloc (sizeof (pthread_cond_t));
