@@ -19,11 +19,13 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <semaphore.h>
 
 #define QUEUESIZE 10
 #define LOOP 20
-//#define qTrue
+
+// Constants for number of producer and consumer threads
+#define P 4
+#define Q 4
 
 // Function Signatures - void pointer as argument and as return type
 void *producer (void *args);
@@ -36,8 +38,13 @@ typedef struct {
     int full, empty;
     pthread_mutex_t *mut;
     pthread_cond_t *notFull, *notEmpty;
-    sem_t *sem;
 } queue;
+
+// Work item struct
+struct workFunction {
+    void * (*work)(void *);
+    void * arg;
+};
 
 // Function Signatures for Queue functions
 queue *queueInit (void);
@@ -56,14 +63,24 @@ int main ()
         exit (1);
     }
 
+
     // Create and run Producer and Consumer threads
-    pthread_t pro, con;
-    pthread_create (&pro, NULL, producer, fifo);
-    pthread_create (&con, NULL, consumer, fifo);
+    pthread_t pro[P];
+    pthread_t con[Q];
+    for(int i = 0; i < P; i++){
+        pthread_create (pro + i, NULL, producer, fifo);
+    }
+    for(int j = 0; j < Q; j++){
+        pthread_create (con + j, NULL, consumer, fifo);
+    }
 
     // Join Threads
-    pthread_join (pro, NULL);
-    pthread_join (con, NULL);
+    for(int i = 0; i < P; i++){
+        pthread_join (pro[i], NULL);
+    }
+    for(int j = 0; j < Q; j++){
+        pthread_join (con[j], NULL);
+    }
 
     // Delete queue and return
     queueDelete (fifo);
@@ -77,24 +94,15 @@ void *producer (void *q)
     queue *fifo;
     fifo = (queue *)q;
 
-    // Two seasons of producing
     for (int i = 0; i < LOOP; i++) {
-        // Get the lock to the queue, add to it, unlock it, raise semaphore, print and sleep
         pthread_mutex_lock (fifo->mut);
+        while (fifo->full) {
+            printf ("producer: queue FULL.\n");
+            pthread_cond_wait (fifo->notFull, fifo->mut);
+        }
         queueAdd (fifo, i);
         pthread_mutex_unlock (fifo->mut);
-        sem_post(fifo->sem);
-        printf ("producer: added %d.\n", i);
-        usleep (100000);
-    }
-    for (int i = 0; i < LOOP; i++) {
-        // Get the lock to the queue, add to it, unlock it, raise semaphore, print and sleep
-        pthread_mutex_lock (fifo->mut);
-        queueAdd (fifo, i);
-        pthread_mutex_unlock (fifo->mut);
-        sem_post(fifo->sem);
-        printf ("producer: added %d.\n", i);
-        usleep (200000);
+        pthread_cond_signal (fifo->notEmpty);
     }
     return (NULL);
 }
@@ -109,38 +117,19 @@ void *consumer (void *q)
     // Temporary variable to hold consumed item
     int d;
 
-    // Two seasons of consumption
     for (int i = 0; i < LOOP; i++) {
-        // Wait on semaphore signal, take queue lock, delete item, release lock, print and sleep
-        sem_wait (fifo->sem);   //TODO: Is this blocking or just a signal - probably the 2nd??
         pthread_mutex_lock (fifo->mut);
+        while (fifo->empty) {
+            printf ("consumer: queue EMPTY.\n");
+            pthread_cond_wait (fifo->notEmpty, fifo->mut);
+        }
         queueDel (fifo, &d);
         pthread_mutex_unlock (fifo->mut);
-        printf ("consumer: deleted %d.\n", d);
-        usleep(200000);
-    }
-    for (int i = 0; i < LOOP; i++) {
-        // Wait on semaphore signal, take lock, delete item, release lock, print and sleep
-        sem_wait (fifo->sem);
-        pthread_mutex_lock (fifo->mut);
-        queueDel (fifo, &d);
-        pthread_mutex_unlock (fifo->mut);
-        printf ("consumer: deleted %d.\n", d);
-        usleep (50000);
+        pthread_cond_signal (fifo->notFull);
+        printf ("consumer: received %d.\n", d);
     }
     return (NULL);
 }
-
-// Queue struct without a semaphore
-#ifdef qTrue
-typedef struct {
-	int buf[QUEUESIZE];
-	long head, tail;
-	int full, empty;
-	pthread_mutex_t *mut;
-	pthread_cond_t *notFull, *notEmpty;
-} queue;
-#endif
 
 // Queue Constructor
 queue *queueInit (void)
@@ -160,8 +149,6 @@ queue *queueInit (void)
     pthread_cond_init (q->notFull, NULL);
     q->notEmpty = (pthread_cond_t *) malloc (sizeof (pthread_cond_t));
     pthread_cond_init (q->notEmpty, NULL);
-    q->sem = (sem_t *) malloc (sizeof (sem_t));
-    sem_init(q->sem, 0, 0);
 
     return (q);
 }
@@ -175,12 +162,10 @@ void queueDelete (queue *q)
     free (q->notFull);
     pthread_cond_destroy (q->notEmpty);
     free (q->notEmpty);
-    sem_destroy (q->sem);
-    free (q->sem);
     free (q);
 }
 
-// Add element to queue
+// Add element to queue in a cyclic buffer
 void queueAdd (queue *q, int in)
 {
     q->buf[q->tail] = in;
