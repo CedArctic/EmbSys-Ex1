@@ -20,6 +20,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <time.h>
+#import <math.h>
+#include <sys/time.h>
 
 #define QUEUESIZE 10
 #define LOOP 20
@@ -32,9 +35,31 @@
 void *producer (void *args);
 void *consumer (void *args);
 
+// Work item struct
+typedef struct {
+    void * (*work)(void *);
+    void * arg;
+    struct timeval startTime;
+}workFunction;
+
+// Initializer for workFunction
+workFunction *workFunctionInit (void * (*workFunc)(void *), void * arg)
+{
+    workFunction *w;
+
+    w = (workFunction *)malloc (sizeof (workFunction));
+    if (w == NULL) return (NULL);
+
+    w->work = workFunc;
+    w->arg = arg;
+    gettimeofday(&w->startTime, NULL);
+
+    return w;
+}
+
 // Queue struct
 typedef struct {
-    int buf[QUEUESIZE];
+    workFunction* buf[QUEUESIZE];
     long head, tail;
     int full, empty;
     bool prodEnd;   // Variable to signify end of production - used to exit consumers
@@ -42,17 +67,24 @@ typedef struct {
     pthread_cond_t *notFull, *notEmpty;
 } queue;
 
-// Work item struct
-struct workFunction {
-    void * (*work)(void *);
-    void * arg;
-};
-
 // Function Signatures for Queue functions
 queue *queueInit (void);
 void queueDelete (queue *q);
-void queueAdd (queue *q, int in);
-void queueDel (queue *q, int *out);
+void queueAdd (queue *q, workFunction* in);
+void queueDel (queue *q, workFunction **out);
+
+// Array of 6 trigonometric function pointers
+double (*funcArr[6])(double) = {&sin, &cos, &tan, &acos, &asin, &atan};
+
+// Tenfold function: Receives a trig function pointer and executes it 10 times with random arguments
+double tenfold(double (*functionPtr)(double)){
+    double sum = 0;
+    srand(time(NULL));
+    for(int i = 0; i < 10; i++){
+        sum += (*functionPtr)(rand() % 6);
+    }
+    return sum;
+}
 
 // Entry Point
 int main ()
@@ -107,8 +139,10 @@ void *producer (void *q)
             printf ("producer: queue FULL.\n");
             pthread_cond_wait (fifo->notFull, fifo->mut);
         }
-        queueAdd (fifo, i);
-        printf ("producer: added %d.\n", i);
+        // Create workFunction struct
+        workFunction* w = workFunctionInit((void *(*)(void *)) &tenfold, funcArr[rand() % 6]);
+        queueAdd (fifo, w);
+        printf ("producer: added function.\n");
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notEmpty);
     }
@@ -124,7 +158,7 @@ void *consumer (void *q)
     fifo = (queue *)q;
 
     // Temporary variable to hold consumed item
-    int d;
+    workFunction* w;
 
     // Consume
     while(1){
@@ -138,8 +172,11 @@ void *consumer (void *q)
             pthread_mutex_unlock (fifo->mut);
             break;
         }
-        queueDel (fifo, &d);
-        printf ("consumer: received %d.\n", d);
+        queueDel (fifo, &w);
+        //TODO: Write the stats
+        //TODO: Run the work
+        //TODO: Free memory of consumed item object
+        printf ("consumer: received function.\n");
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notFull);
     }
@@ -183,7 +220,7 @@ void queueDelete (queue *q)
 }
 
 // Add element to queue in a cyclic buffer
-void queueAdd (queue *q, int in)
+void queueAdd (queue *q, workFunction* in)
 {
     q->buf[q->tail] = in;
     q->tail++;
@@ -196,8 +233,8 @@ void queueAdd (queue *q, int in)
     return;
 }
 
-// Remove element form queue
-void queueDel (queue *q, int *out)
+// Remove element from queue
+void queueDel (queue *q, workFunction **out)
 {
     *out = q->buf[q->head];
 
