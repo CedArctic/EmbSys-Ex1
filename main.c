@@ -25,15 +25,14 @@
 #include <sys/time.h>
 
 #define QUEUESIZE 10
-#define LOOP 20
+#define LOOP 15
 
 // Constants for number of producer and consumer threads
-#define P 4
-#define Q 4
+#define P 8
+#define Q 1
 
-// Function Signatures - void pointer as argument and as return type
-void *producer (void *args);
-void *consumer (void *args);
+
+// ===== Structures =====
 
 // Work item struct
 typedef struct {
@@ -41,21 +40,6 @@ typedef struct {
     void * arg;
     struct timeval startTime;
 }workFunction;
-
-// Initializer for workFunction
-workFunction *workFunctionInit (void * (*workFunc)(void *), void * arg)
-{
-    workFunction *w;
-
-    w = (workFunction *)malloc (sizeof (workFunction));
-    if (w == NULL) return (NULL);
-
-    w->work = workFunc;
-    w->arg = arg;
-    gettimeofday(&w->startTime, NULL);
-
-    return w;
-}
 
 // Queue struct
 typedef struct {
@@ -67,24 +51,32 @@ typedef struct {
     pthread_cond_t *notFull, *notEmpty;
 } queue;
 
-// Function Signatures for Queue functions
+
+// ===== Function Signatures ======
+
+// Function Signatures - void pointer as argument and as return type
+void *producer (void *args);
+void *consumer (void *args);
+
+// Function Signatures for Queue and WorkFunction struct functions
 queue *queueInit (void);
 void queueDelete (queue *q);
 void queueAdd (queue *q, workFunction* in);
 void queueDel (queue *q, workFunction **out);
+workFunction *workFunctionInit (void * (*workFunc)(void *), void * arg);
+double tenfold(double (*functionPtr)(double));
+
+
+// ===== Global variables =====
 
 // Array of 6 trigonometric function pointers
 double (*funcArr[6])(double) = {&sin, &cos, &tan, &acos, &asin, &atan};
 
-// Tenfold function: Receives a trig function pointer and executes it 10 times with random arguments
-double tenfold(double (*functionPtr)(double)){
-    double sum = 0;
-    srand(time(NULL));
-    for(int i = 0; i < 10; i++){
-        sum += (*functionPtr)(rand() % 6);
-    }
-    return sum;
-}
+// Timing results array
+int resultPtr = 0;
+double timeResults[P*LOOP];
+
+// ===== Function Definitions =====
 
 // Entry Point
 int main ()
@@ -119,6 +111,11 @@ int main ()
     // Join consumer threads
     for(int j = 0; j < Q; j++){
         pthread_join (con[j], NULL);
+    }
+
+    // Print results
+    for(int k = 0; k < P*LOOP; k++){
+        printf("%f\n", timeResults[k]);
     }
 
     // Delete queue and return
@@ -157,8 +154,12 @@ void *consumer (void *q)
     queue *fifo;
     fifo = (queue *)q;
 
-    // Temporary variable to hold consumed item
+    // Variable to hold consumed item
     workFunction* w;
+
+    // End timer
+    struct timeval endTime;
+    double elapsedTime;
 
     // Consume
     while(1){
@@ -173,15 +174,52 @@ void *consumer (void *q)
             break;
         }
         queueDel (fifo, &w);
-        //TODO: Write the stats
+
+        // Calculate and write the workFunctions' waiting time in the queue to the results array
+        gettimeofday(&endTime, NULL);
+        elapsedTime = (endTime.tv_sec - (w->startTime).tv_sec) * 1000.0;      // sec to ms
+        elapsedTime += (endTime.tv_usec - (w->startTime).tv_usec) / 1000.0;   // us to ms
+        timeResults[resultPtr] = elapsedTime;
+        resultPtr++;
+
         //TODO: Run the work
-        //TODO: Free memory of consumed item object
+        //BUG: Result is NaN
+        printf("%f\n", (w->work)(w->arg));
+
+        // Free memory of consumed item
+        free(w);
+
         printf ("consumer: received function.\n");
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notFull);
     }
     printf("Exiting consumer\n");
     return (NULL);
+}
+
+// Initializer for workFunction
+workFunction *workFunctionInit (void * (*workFunc)(void *), void * arg)
+{
+    workFunction *w;
+
+    w = (workFunction *)malloc (sizeof (workFunction));
+    if (w == NULL) return (NULL);
+
+    w->work = workFunc;
+    w->arg = arg;
+    gettimeofday(&w->startTime, NULL);
+
+    return w;
+}
+
+// Tenfold function: Receives a trig function pointer and executes it 10 times with random arguments
+double tenfold(double (*functionPtr)(double)){
+    double sum = 0;
+    srand(time(NULL));
+    for(int i = 0; i < 10; i++){
+        sum += (*functionPtr)(rand() % 6);
+    }
+    return sum;
 }
 
 // Queue Constructor
