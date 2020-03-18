@@ -25,10 +25,10 @@
 #include <sys/time.h>
 
 #define QUEUESIZE 10
-#define LOOP 15
+#define LOOP 20
 
 // Constants for number of producer and consumer threads
-#define P 8
+#define P 12
 #define Q 1
 
 
@@ -74,13 +74,24 @@ double (*funcArr[6])(double) = {&sin, &cos, &tan, &acos, &asin, &atan};
 
 // Timing results array
 int resultPtr = 0;
-double timeResults[P*LOOP];
+double *timeResults;
 
 // ===== Function Definitions =====
 
 // Entry Point
 int main ()
 {
+    // Run for various combinations of producers (p) and consumers (q)
+    experiment(P,Q);
+
+}
+
+// Run experiment
+int experiment(int p, int q){
+
+    // Create results array
+    timeResults = calloc(p*LOOP, sizeof(double));
+
     // Create a queue
     queue *fifo;
     fifo = queueInit ();
@@ -90,17 +101,17 @@ int main ()
     }
 
     // Create and run Producer and Consumer threads
-    pthread_t pro[P];
-    pthread_t con[Q];
-    for(int i = 0; i < P; i++){
+    pthread_t *pro = calloc(p, sizeof(pthread_t));
+    pthread_t *con = calloc(q, sizeof(pthread_t));
+    for(int i = 0; i < p; i++){
         pthread_create (pro + i, NULL, producer, fifo);
     }
-    for(int j = 0; j < Q; j++){
+    for(int j = 0; j < q; j++){
         pthread_create (con + j, NULL, consumer, fifo);
     }
 
     // Join Producer Threads
-    for(int i = 0; i < P; i++){
+    for(int i = 0; i < p; i++){
         pthread_join (pro[i], NULL);
     }
 
@@ -109,16 +120,18 @@ int main ()
     pthread_cond_broadcast(fifo->notEmpty);
 
     // Join consumer threads
-    for(int j = 0; j < Q; j++){
+    for(int j = 0; j < q; j++){
         pthread_join (con[j], NULL);
     }
 
     // Print results
-    for(int k = 0; k < P*LOOP; k++){
+    for(int k = 0; k < p*LOOP; k++){
         printf("%f\n", timeResults[k]);
     }
 
-    // Delete queue and return
+    // Delete queue, free results, reset result pointer and return
+    resultPtr = 0;
+    free(timeResults);
     queueDelete (fifo);
     return 0;
 }
@@ -137,7 +150,10 @@ void *producer (void *q)
             pthread_cond_wait (fifo->notFull, fifo->mut);
         }
         // Create workFunction struct
+        // Select a random trig function and pass it to tenfold()
         workFunction* w = workFunctionInit((void *(*)(void *)) &tenfold, funcArr[rand() % 6]);
+        // Print something
+        //workFunction* w = workFunctionInit((void *(*)(void *)) &printf, "something...\n");
         queueAdd (fifo, w);
         printf ("producer: added function.\n");
         pthread_mutex_unlock (fifo->mut);
@@ -163,6 +179,7 @@ void *consumer (void *q)
 
     // Consume
     while(1){
+        // Get lock
         pthread_mutex_lock (fifo->mut);
         while ((fifo->empty) && (fifo->prodEnd == false)) {
             printf ("consumer: queue EMPTY.\n");
@@ -173,6 +190,8 @@ void *consumer (void *q)
             pthread_mutex_unlock (fifo->mut);
             break;
         }
+
+        // Take an item off the queue
         queueDel (fifo, &w);
 
         // Calculate and write the workFunctions' waiting time in the queue to the results array
@@ -182,9 +201,8 @@ void *consumer (void *q)
         timeResults[resultPtr] = elapsedTime;
         resultPtr++;
 
-        //TODO: Run the work
-        //BUG: Result is NaN
-        printf("%f\n", (w->work)(w->arg));
+        // Run the work
+        (w->work)(w->arg);
 
         // Free memory of consumed item
         free(w);
@@ -217,7 +235,7 @@ double tenfold(double (*functionPtr)(double)){
     double sum = 0;
     srand(time(NULL));
     for(int i = 0; i < 10; i++){
-        sum += (*functionPtr)(rand() % 6);
+        sum += (double)(*functionPtr)((double)(rand() % 6));
     }
     return sum;
 }
