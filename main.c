@@ -18,19 +18,15 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <time.h>
 #import <math.h>
 #include <sys/time.h>
 
-#define QUEUESIZE 10
-#define LOOP 20
-
-// Constants for number of producer and consumer threads
-#define P 12
-#define Q 1
-
+#define QUEUESIZE 10    // Size of queue
+#define LOOP 20         // Number of items each producer will produce
 
 // ===== Structures =====
 
@@ -65,7 +61,8 @@ void queueAdd (queue *q, workFunction* in);
 void queueDel (queue *q, workFunction **out);
 workFunction *workFunctionInit (void * (*workFunc)(void *), void * arg);
 double tenfold(double (*functionPtr)(double));
-
+int experiment(int p, int q);
+void writeResults(int p, int q);
 
 // ===== Global variables =====
 
@@ -76,14 +73,26 @@ double (*funcArr[6])(double) = {&sin, &cos, &tan, &acos, &asin, &atan};
 int resultPtr = 0;
 double *timeResults;
 
+// Completed consumer threads counter
+int compConThreads = 0;
+
 // ===== Function Definitions =====
 
 // Entry Point
 int main ()
 {
-    // Run for various combinations of producers (p) and consumers (q)
-    experiment(P,Q);
+    // Define producers and number of experiments for each configuration
+    int p = 10;
+    int experimentsNum = 35;
 
+    // Run for various numbers of consumers (q)
+    for(int q = 1; q < 64; q *= 2){
+        for(int i = 0; i < experimentsNum; i++){
+            experiment(p,q);
+        }
+    }
+
+    return 0;
 }
 
 // Run experiment
@@ -117,21 +126,27 @@ int experiment(int p, int q){
 
     // Signal end of production
     fifo->prodEnd = true;
-    pthread_cond_broadcast(fifo->notEmpty);
 
     // Join consumer threads
-    for(int j = 0; j < q; j++){
-        pthread_join (con[j], NULL);
+    while (compConThreads < q){
+        pthread_cond_broadcast(fifo->notEmpty);
+    }
+    for(int i = 0; i < q; i++){
+        pthread_join (con[i], NULL);
     }
 
     // Print results
-    for(int k = 0; k < p*LOOP; k++){
+/*    for(int k = 0; k < p*LOOP; k++){
         printf("%f\n", timeResults[k]);
-    }
+    }*/
 
-    // Delete queue, free results, reset result pointer and return
+    // Write Results
+    writeResults(p, q);
+
+    // Delete queue, free results, reset result pointer and finished threads counter and return
     resultPtr = 0;
     free(timeResults);
+    compConThreads = 0;
     queueDelete (fifo);
     return 0;
 }
@@ -187,6 +202,7 @@ void *consumer (void *q)
         }
         // Check for end of production
         if (fifo->prodEnd){
+            compConThreads++;
             pthread_mutex_unlock (fifo->mut);
             break;
         }
@@ -302,4 +318,23 @@ void queueDel (queue *q, workFunction **out)
     q->full = 0;
 
     return;
+}
+
+// Write results to csv
+void writeResults(int p, int q) {
+
+    FILE *fp;
+
+    char filename[50];
+    sprintf(filename, "P%d-Q%d.csv", p, q);
+
+    fp = fopen(filename, "a");
+
+    for (int i = 0; i < p*LOOP; i++) {
+        fprintf(fp, "%f, ", timeResults[i]);
+    }
+    fprintf(fp, "\n");
+    fclose(fp);
+    printf("%s file created\n", filename);
+
 }
