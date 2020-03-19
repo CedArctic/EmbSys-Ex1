@@ -170,11 +170,11 @@ void *producer (void *q)
         // Print something
         //workFunction* w = workFunctionInit((void *(*)(void *)) &printf, "something...\n");
         queueAdd (fifo, w);
-        printf ("producer: added function.\n");
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notEmpty);
+        //printf ("producer: added function.\n");
     }
-    printf("Exiting producer\n");
+    //printf("Exiting producer\n");
     return (NULL);
 }
 
@@ -223,11 +223,11 @@ void *consumer (void *q)
         // Free memory of consumed item
         free(w);
 
-        printf ("consumer: received function.\n");
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notFull);
+        //printf ("consumer: received function.\n");
     }
-    printf("Exiting consumer\n");
+    //printf("Exiting consumer\n");
     return (NULL);
 }
 
