@@ -83,10 +83,10 @@ int main ()
 {
     // Define producers and number of experiments for each configuration
     int p = 10;
-    int experimentsNum = 35;
+    int experimentsNum = 100;
 
     // Run for various numbers of consumers (q)
-    for(int q = 1; q < 64; q *= 2){
+    for(int q = 1; q < 128; q *= 2){
         for(int i = 0; i < experimentsNum; i++){
             experiment(p,q);
         }
@@ -134,11 +134,6 @@ int experiment(int p, int q){
     for(int i = 0; i < q; i++){
         pthread_join (con[i], NULL);
     }
-
-    // Print results
-/*    for(int k = 0; k < p*LOOP; k++){
-        printf("%f\n", timeResults[k]);
-    }*/
 
     // Write Results
     writeResults(p, q);
@@ -201,7 +196,7 @@ void *consumer (void *q)
             pthread_cond_wait (fifo->notEmpty, fifo->mut);
         }
         // Check for end of production
-        if (fifo->prodEnd){
+        if ((fifo->prodEnd) && (fifo->empty)){
             compConThreads++;
             pthread_mutex_unlock (fifo->mut);
             break;
@@ -209,6 +204,9 @@ void *consumer (void *q)
 
         // Take an item off the queue
         queueDel (fifo, &w);
+
+        pthread_mutex_unlock (fifo->mut);
+        pthread_cond_signal (fifo->notFull);
 
         // Calculate and write the workFunctions' waiting time in the queue to the results array
         gettimeofday(&endTime, NULL);
@@ -223,8 +221,7 @@ void *consumer (void *q)
         // Free memory of consumed item
         free(w);
 
-        pthread_mutex_unlock (fifo->mut);
-        pthread_cond_signal (fifo->notFull);
+
         //printf ("consumer: received function.\n");
     }
     //printf("Exiting consumer\n");
