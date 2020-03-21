@@ -205,15 +205,16 @@ void *consumer (void *q)
         // Take an item off the queue
         queueDel (fifo, &w);
 
-        pthread_mutex_unlock (fifo->mut);
-        pthread_cond_signal (fifo->notFull);
-
         // Calculate and write the workFunctions' waiting time in the queue to the results array
         gettimeofday(&endTime, NULL);
         elapsedTime = (endTime.tv_sec - (w->startTime).tv_sec) * 1000.0;      // sec to ms
         elapsedTime += (endTime.tv_usec - (w->startTime).tv_usec) / 1000.0;   // us to ms
         timeResults[resultPtr] = elapsedTime;
         resultPtr++;
+
+        // End critical section
+        pthread_mutex_unlock (fifo->mut);
+        pthread_cond_signal (fifo->notFull);
 
         // Run the work
         (w->work)(w->arg);
