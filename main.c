@@ -34,7 +34,6 @@
 typedef struct {
     void * (*work)(void *);
     void * arg;
-    struct timeval startTime;
 }workFunction;
 
 // Queue struct
@@ -153,23 +152,22 @@ void *producer (void *q)
     queue *fifo;
     fifo = (queue *)q;
 
+    // Produce
     for (int i = 0; i < LOOP; i++) {
         pthread_mutex_lock (fifo->mut);
         while (fifo->full) {
-            printf ("producer: queue FULL.\n");
+            //printf ("producer: queue FULL.\n");
             pthread_cond_wait (fifo->notFull, fifo->mut);
         }
-        // Create workFunction struct
-        // Select a random trig function and pass it to tenfold()
+
+        // Create workFunction struct.  Select a random trig function and pass it to tenfold()
         workFunction* w = workFunctionInit((void *(*)(void *)) &tenfold, funcArr[rand() % 6]);
         // Print something
         //workFunction* w = workFunctionInit((void *(*)(void *)) &printf, "something...\n");
         queueAdd (fifo, w);
         pthread_mutex_unlock (fifo->mut);
         pthread_cond_signal (fifo->notEmpty);
-        //printf ("producer: added function.\n");
     }
-    //printf("Exiting producer\n");
     return (NULL);
 }
 
@@ -192,10 +190,10 @@ void *consumer (void *q)
         // Get lock
         pthread_mutex_lock (fifo->mut);
         while ((fifo->empty) && (fifo->prodEnd == false)) {
-            printf ("consumer: queue EMPTY.\n");
+            //printf ("consumer: queue EMPTY.\n");
             pthread_cond_wait (fifo->notEmpty, fifo->mut);
         }
-        // Check for end of production
+        // Check for end of production and an empty work queue
         if ((fifo->prodEnd) && (fifo->empty)){
             compConThreads++;
             pthread_mutex_unlock (fifo->mut);
@@ -207,8 +205,10 @@ void *consumer (void *q)
 
         // Calculate and write the workFunctions' waiting time in the queue to the results array
         gettimeofday(&endTime, NULL);
-        elapsedTime = (endTime.tv_sec - (w->startTime).tv_sec) * 1000.0;      // sec to ms
-        elapsedTime += (endTime.tv_usec - (w->startTime).tv_usec) / 1000.0;   // us to ms
+        void** args = w->arg;
+        struct timeval *startTime = (struct timeval*) args[1];
+        elapsedTime = (endTime.tv_sec - startTime->tv_sec) * 1000000.0;      // sec to usec
+        elapsedTime += (endTime.tv_usec - startTime->tv_usec);   // Add usec
         timeResults[resultPtr] = elapsedTime;
         resultPtr++;
 
@@ -217,11 +217,11 @@ void *consumer (void *q)
         pthread_cond_signal (fifo->notFull);
 
         // Run the work
-        (w->work)(w->arg);
+        (w->work)(args[0]);
 
         // Free memory of consumed item
+        free(startTime);
         free(w);
-
 
         //printf ("consumer: received function.\n");
     }
@@ -232,14 +232,21 @@ void *consumer (void *q)
 // Initializer for workFunction
 workFunction *workFunctionInit (void * (*workFunc)(void *), void * arg)
 {
+    // Create work struct
     workFunction *w;
-
     w = (workFunction *)malloc (sizeof (workFunction));
     if (w == NULL) return (NULL);
 
+    // Get queueing time
+    struct timeval *startTime = calloc(1, sizeof(struct timeval));
+    gettimeofday(startTime, NULL);
+
+    // Write work struct
+    void** finalArgs = calloc(2, sizeof(void*));
+    finalArgs[0] = arg;
+    finalArgs[1] = startTime;
     w->work = workFunc;
-    w->arg = arg;
-    gettimeofday(&w->startTime, NULL);
+    w->arg = finalArgs;
 
     return w;
 }
