@@ -22,11 +22,11 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <time.h>
-#import <math.h>
+#include <math.h>
 #include <sys/time.h>
 
 #define QUEUESIZE 10    // Size of queue
-#define LOOP 20         // Number of items each producer will produce
+#define LOOP 1000         // Number of items each producer will produce
 
 // ===== Structures =====
 
@@ -81,11 +81,11 @@ int compConThreads = 0;
 int main ()
 {
     // Define producers and number of experiments for each configuration
-    int p = 10;
+    int p = 1;
     int experimentsNum = 100;
 
     // Run for various numbers of consumers (q)
-    for(int q = 1; q < 128; q *= 2){
+    for(int q = 1; q < 129; q *= 2){
         for(int i = 0; i < experimentsNum; i++){
             experiment(p,q);
         }
